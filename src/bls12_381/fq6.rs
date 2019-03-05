@@ -28,6 +28,14 @@ impl Rand for Fq6 {
 }
 
 impl Fq6 {
+    pub fn stream(&mut self, d: &mut [u64], offset: usize, out: bool) -> usize { 
+        let mut e = offset;
+        e += self.c2.stream(d, e, out); 
+        e += self.c1.stream(d, e, out);
+        e += self.c0.stream(d, e, out);
+        e - offset
+    }
+
     /// Multiply by quadratic nonresidue v.
     pub fn mul_by_nonresidue(&mut self) {
         use std::mem::swap;

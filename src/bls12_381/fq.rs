@@ -1045,6 +1045,18 @@ impl Field for Fq {
 }
 
 impl Fq {
+    pub fn stream(&mut self, d: &mut [u64], offset: usize, out: bool) -> usize { 
+        let mut e = offset;
+        if out {
+            let r = self.into_repr();
+            for x in 0 .. r.0.len() { d[e] = r.0[x]; e += 1; } 
+            return r.0.len();
+        } else {
+            *self = Fq(FqRepr([d[0], d[1], d[2], d[3], d[4], d[5]]));
+            return d.len();
+        }
+    }
+
     /// Determines if the element is really in the field. This is only used
     /// internally.
     #[inline(always)]

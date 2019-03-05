@@ -20,6 +20,8 @@ extern crate rand;
 #[cfg(test)]
 pub mod tests;
 
+use std::io::{self, Read, Write};
+
 pub mod bls12_381;
 
 mod wnaf;
@@ -27,7 +29,6 @@ pub use self::wnaf::Wnaf;
 
 use std::fmt;
 use std::error::Error;
-use std::io::{self, Read, Write};
 
 /// An "engine" is a collection of types (fields, elliptic curve groups, etc.)
 /// with well-defined relationships. In particular, the G1/G2 curve groups are
@@ -234,7 +235,7 @@ pub trait CurveAffine:
     /// the point at infinity.
     fn into_uncompressed(&self) -> Self::Uncompressed {
         <Self::Uncompressed as EncodedPoint>::from_affine(*self)
-    }
+    } 
 }
 
 /// An encoded elliptic curve point, which should essentially wrap a `[u8; N]`.
@@ -738,3 +739,199 @@ mod arith_impl {
         combine_u64(r1, r0)
     }
 }
+
+
+
+
+#[repr(C)] #[derive(Debug)] pub struct ArrayStruct<T> { d: *mut T, len: usize }
+
+const FIELD_SIZE: usize = 48;
+const G1_SIZE: usize = 2*FIELD_SIZE;
+const G1_SIZE_COMPRESSED: usize = G1_SIZE/2;
+const G2_SIZE: usize = 2*G1_SIZE;
+const G2_SIZE_COMPRESSED: usize = G2_SIZE/2;
+const GT_SIZE: usize = 12*FIELD_SIZE;
+const SCALAR_SIZE: usize = 256/(8*8);
+
+use bls12_381::*;    
+use std::panic;
+
+fn g1_size(compressed: bool) -> usize { if compressed { G1_SIZE_COMPRESSED } else { G1_SIZE } }
+fn g2_size(compressed: bool) -> usize { if compressed { G2_SIZE_COMPRESSED } else { G2_SIZE } } 
+
+fn copy_array(from: &[u8], to: &mut [u8]) {
+    assert!(from.len() == to.len());
+    for x in 0 .. from.len() { to[x] = from[x] }
+}
+
+fn g1_from_raw(d: &[u8]) -> G1Affine { 
+    match if d.len() == g1_size(true) { 
+        let mut a: [u8 ; G1_SIZE_COMPRESSED] = [0 ; G1_SIZE_COMPRESSED]; copy_array(d, &mut a);
+        G1Compressed(a).into_affine() 
+    } else { 
+        let mut a: [u8 ; G1_SIZE] = [0 ; G1_SIZE]; copy_array(d, &mut a);
+        G1Uncompressed(a).into_affine() 
+    } 
+    { Ok(a) => a, Err(why) => panic!("{:?}\nd.len() = {:X}", why, d.len()) }
+}
+
+fn g2_from_raw(d: &[u8]) -> G2Affine {
+    match if d.len() == g2_size(true) {
+        let mut a: [u8 ; G2_SIZE_COMPRESSED] = [0 ; G2_SIZE_COMPRESSED]; copy_array(d, &mut a); 
+        G2Compressed(a).into_affine()
+    } else {
+        let mut a: [u8 ; G2_SIZE] = [0 ; G2_SIZE]; copy_array(d, &mut a);
+        G2Uncompressed(a).into_affine()
+    }
+    { Ok(a) => a, Err(why) => panic!("{:?}\nd.len() = {:X}", why, d.len()) }
+}
+/*
+fn print_raw8(d: &[u8], prefix: &str) { print!("\n{}:{}(", d.len(), prefix); 
+    for x in 0 .. d.len() { print!("{:X}", d[x]) };
+    print!(") ");
+    io::stdout().flush().ok().expect("Could not flush stdout");
+}
+fn print_raw64(d: &[u64], prefix: &str) { print!("\n{}:{}(", d.len(), prefix); 
+    for x in 0 .. d.len() { print!("{:X}", d[x]) };
+    print!(") ");
+    io::stdout().flush().ok().expect("Could not flush stdout");
+}
+*/
+fn g1_to_raw(g: G1Affine, result: ArrayStruct<u8>) {
+    assert!(g.is_on_curve());
+    assert!(g.is_in_correct_subgroup_assuming_on_curve());
+    let mut d = mut_array(result);
+    if d.len() == g1_size(true) { copy_array(&G1Compressed::from_affine(g).0, &mut d); } 
+    else { copy_array(&G1Uncompressed::from_affine(g).0, &mut d); }
+}
+
+fn g2_to_raw(g: G2Affine, result: ArrayStruct<u8>) {
+    assert!(g.is_on_curve());
+    assert!(g.is_in_correct_subgroup_assuming_on_curve());
+    let mut d = mut_array(result);
+    if d.len() == g2_size(true) { copy_array(&G2Compressed::from_affine(g).0, &mut d); } 
+    else { copy_array(&G2Uncompressed::from_affine(g).0, &mut d); }
+}
+
+fn gt(a: ArrayStruct<u64>) -> Fq12 { 
+    assert!(a.len == GT_SIZE/8);
+    let d = mut_array(a);
+    assert!(d.len() == GT_SIZE/8);
+    let mut g: Fq12 = Fq12::zero();
+    g.stream(d, 0, false);
+    return g
+}
+
+fn gt_to_raw(mut g: Fq12, result: ArrayStruct<u64>) -> () { 
+    assert!(result.len == GT_SIZE/8);
+    let d = mut_array(result);
+    assert!(d.len() == GT_SIZE/8);
+    g.stream(d, 0, true);
+}
+
+fn scalar_from_raw(s: &[u64]) -> bls12_381::Fr { 
+    assert!(s.len() == SCALAR_SIZE);
+    bls12_381::Fr{0: bls12_381::FrRepr([s[0], s[1], s[2], s[3]])} 
+}
+
+fn mut_array<'a, T>(a_: ArrayStruct<T>) -> &'a mut [T] { 
+    unsafe { std::slice::from_raw_parts_mut(a_.d, a_.len) } 
+}
+fn const_array<'a, T>(a_: ArrayStruct<T>, x: usize) -> &'a [T] { assert!(a_.len == x);
+    unsafe { std::slice::from_raw_parts(a_.d, a_.len) } 
+}
+
+fn g1affine(a: ArrayStruct<u8>) -> G1Affine { g1_from_raw(const_array(a, g1_size(true))) }
+fn g2affine(a: ArrayStruct<u8>) -> G2Affine { g2_from_raw(const_array(a, g2_size(true))) }
+//fn gt(a: ArrayStruct<u64>) -> bls12_381::Fq12 { gt_from_raw(a) }
+fn scalar(a: ArrayStruct<u64>) -> bls12_381::Fr { scalar_from_raw(const_array(a, SCALAR_SIZE)) }
+
+#[no_mangle] pub extern "C" fn g1_add(a: ArrayStruct<u8>, b: ArrayStruct<u8>, r: ArrayStruct<u8>) -> bool { return panic::catch_unwind(|| {
+    let mut x: G1 = g1affine(a).into_projective();
+    let y: G1Affine = g1affine(b);
+    x.add_assign_mixed(&y);
+    g1_to_raw(x.into_affine(), r);
+}).is_ok(); }
+
+#[no_mangle] pub extern "C" fn g2_add(a: ArrayStruct<u8>, b: ArrayStruct<u8>, r: ArrayStruct<u8>) -> bool { return panic::catch_unwind(|| {
+    let mut x: G2 = g2affine(a).into_projective();
+    let y: G2Affine = g2affine(b);
+    x.add_assign_mixed(&y);
+    g2_to_raw(x.into_affine(), r);
+}).is_ok(); }
+
+#[no_mangle] pub extern "C" fn g1_get_one(g: ArrayStruct<u8>) -> bool { return panic::catch_unwind(|| {
+    g1_to_raw(G1Affine::get_generator(), g);
+}).is_ok(); }
+
+#[no_mangle] pub extern "C" fn g2_get_one(g: ArrayStruct<u8>) -> bool { return panic::catch_unwind(|| {
+    g2_to_raw(G2Affine::get_generator(), g);
+}).is_ok(); }
+
+#[no_mangle] pub extern "C" fn gt_get_one(g: ArrayStruct<u64>) -> bool { return panic::catch_unwind(|| {
+    gt_to_raw(Fq12::one(), g);
+}).is_ok(); }
+
+#[no_mangle] pub extern "C" fn g1_get_zero(g: ArrayStruct<u8>) -> bool { return panic::catch_unwind(|| {
+    g1_to_raw(G1Affine::zero(), g);
+}).is_ok(); }
+
+#[no_mangle] pub extern "C" fn g2_get_zero(g: ArrayStruct<u8>) -> bool { return panic::catch_unwind(|| {
+    g2_to_raw(G2Affine::zero(), g);
+}).is_ok(); }
+
+#[no_mangle] pub extern "C" fn gt_get_zero(g: ArrayStruct<u64>) -> bool { return panic::catch_unwind(|| {
+    gt_to_raw(Fq12::zero(), g);
+}).is_ok(); }
+
+#[no_mangle] pub extern "C" fn g1_mul(g: ArrayStruct<u8>, p: ArrayStruct<u64>, result: ArrayStruct<u8>) -> bool { return panic::catch_unwind(|| {
+    g1_to_raw(g1affine(g).mul(scalar(p)).into_affine(), result);
+}).is_ok(); }
+
+#[no_mangle] pub extern "C" fn g2_mul(g: ArrayStruct<u8>, p: ArrayStruct<u64>, result: ArrayStruct<u8>) -> bool { return panic::catch_unwind(|| {
+    g2_to_raw(g2affine(g).mul(scalar(p)).into_affine(), result);
+}).is_ok(); }
+
+#[no_mangle] pub extern "C" fn g1_neg(g: ArrayStruct<u8>, result: ArrayStruct<u8>) -> bool { return panic::catch_unwind(|| { 
+    let mut z = g1affine(g);
+    z.negate();
+    g1_to_raw(z, result);
+}).is_ok(); }
+
+#[no_mangle] pub extern "C" fn g2_neg(g: ArrayStruct<u8>, result: ArrayStruct<u8>) -> bool { return panic::catch_unwind(|| {
+    let mut z = g2affine(g);
+    z.negate();
+    g2_to_raw(z, result);
+}).is_ok(); }
+
+#[no_mangle] pub extern "C" fn gt_mul(a: ArrayStruct<u64>, b: ArrayStruct<u64>, result: ArrayStruct<u64>) -> bool { return panic::catch_unwind(|| {
+    let mut z = gt(a);
+    z.mul_assign(&gt(b));
+    gt_to_raw(z, result);
+}).is_ok(); }
+
+#[no_mangle] pub extern "C" fn gt_inverse(g: ArrayStruct<u64>, result: ArrayStruct<u64>) -> bool { return panic::catch_unwind(|| {
+    gt_to_raw(match gt(g).inverse() { Some(v) => v, None => Fq12::zero() }, result); 
+}).is_ok(); }
+
+#[no_mangle] pub extern "C" fn pairing(g1_: ArrayStruct<u8>, g2_: ArrayStruct<u8>, gt: ArrayStruct<u64>) -> bool { return panic::catch_unwind(|| {
+    gt_to_raw(bls12_381::Bls12::pairing(g1affine(g1_), g2affine(g2_)), gt);
+}).is_ok(); }
+  
+#[no_mangle] pub extern "C" fn hash_to_g1(data: ArrayStruct<u8>, result: ArrayStruct<u8>) -> bool { return panic::catch_unwind(|| {   
+    assert!(data.len == 32); 
+    let h = G1::hash(mut_array(data)).into_affine();
+    assert!(!h.is_zero());
+    assert!(h.is_on_curve());
+    assert!(h.is_in_correct_subgroup_assuming_on_curve());
+    g1_to_raw(h, result);
+}).is_ok(); }
+
+#[no_mangle] pub extern "C" fn hash_to_g2(data: ArrayStruct<u8>, result: ArrayStruct<u8>) -> bool { return panic::catch_unwind(|| { 
+    assert!(data.len == 32); 
+    let h = G2::hash(mut_array(data)).into_affine();
+    assert!(!h.is_zero());
+    assert!(h.is_on_curve());
+    assert!(h.is_in_correct_subgroup_assuming_on_curve());
+    g2_to_raw(h, result);
+}).is_ok(); }

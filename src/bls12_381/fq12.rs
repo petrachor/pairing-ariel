@@ -27,6 +27,13 @@ impl Rand for Fq12 {
 }
 
 impl Fq12 {
+    pub fn stream(&mut self, d: &mut [u64], offset: usize, out: bool) -> usize { 
+        let mut e = offset;
+        e += self.c1.stream(d, e, out); 
+        e += self.c0.stream(d, e, out);
+        e - offset
+    }
+
     pub fn conjugate(&mut self) {
         self.c1.negate();
     }

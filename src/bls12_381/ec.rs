@@ -128,7 +128,7 @@ macro_rules! curve_impl {
                 })
             }
 
-            fn is_on_curve(&self) -> bool {
+            pub fn is_on_curve(&self) -> bool {
                 if self.is_zero() {
                     true
                 } else {
@@ -140,7 +140,7 @@ macro_rules! curve_impl {
                 }
             }
 
-            fn is_in_correct_subgroup_assuming_on_curve(&self) -> bool {
+            pub fn is_in_correct_subgroup_assuming_on_curve(&self) -> bool {
                 self.mul($scalarfield::char()).is_zero()
             }
 
@@ -302,6 +302,17 @@ macro_rules! curve_impl {
                     }
                 }
             }
+        }
+
+        impl $affine {
+
+            fn y2_from_x(x: $basefield) -> $basefield {
+                let mut y2 = x.clone();
+                y2.square();
+                y2.mul_assign(&x);
+                y2.add_assign(&Self::get_coeff_b());
+                y2
+            } 
         }
 
         impl CurveProjective for $projective {
@@ -793,7 +804,7 @@ pub mod g1 {
     );
 
     #[derive(Copy, Clone)]
-    pub struct G1Uncompressed([u8; 96]);
+    pub struct G1Uncompressed(pub [u8; 96]);
 
     impl AsRef<[u8]> for G1Uncompressed {
         fn as_ref(&self) -> &[u8] {
@@ -824,7 +835,6 @@ pub mod g1 {
         }
         fn into_affine(&self) -> Result<G1Affine, GroupDecodingError> {
             let affine = self.into_affine_unchecked()?;
-
             if !affine.is_on_curve() {
                 Err(GroupDecodingError::NotOnCurve)
             } else if !affine.is_in_correct_subgroup_assuming_on_curve() {
@@ -886,7 +896,6 @@ pub mod g1 {
         }
         fn from_affine(affine: G1Affine) -> Self {
             let mut res = Self::empty();
-
             if affine.is_zero() {
                 // Set the second-most significant bit to indicate this point
                 // is at infinity.
@@ -903,7 +912,7 @@ pub mod g1 {
     }
 
     #[derive(Copy, Clone)]
-    pub struct G1Compressed([u8; 48]);
+    pub struct G1Compressed(pub [u8; 48]);
 
     impl AsRef<[u8]> for G1Compressed {
         fn as_ref(&self) -> &[u8] {
@@ -1024,7 +1033,7 @@ pub mod g1 {
             self.mul_bits(cofactor)
         }
 
-        fn get_generator() -> Self {
+        pub fn get_generator() -> Self {
             G1Affine {
                 x: super::super::fq::G1_GENERATOR_X,
                 y: super::super::fq::G1_GENERATOR_Y,
@@ -1034,7 +1043,7 @@ pub mod g1 {
 
         fn get_coeff_b() -> Fq {
             super::super::fq::B_COEFF
-        }
+        } 
 
         fn perform_pairing(&self, other: &G2Affine) -> Fq12 {
             super::super::Bls12::pairing(*self, *other)
@@ -1489,7 +1498,7 @@ pub mod g2 {
     );
 
     #[derive(Copy, Clone)]
-    pub struct G2Uncompressed([u8; 192]);
+    pub struct G2Uncompressed(pub [u8; 192]);
 
     impl AsRef<[u8]> for G2Uncompressed {
         fn as_ref(&self) -> &[u8] {
@@ -1520,7 +1529,6 @@ pub mod g2 {
         }
         fn into_affine(&self) -> Result<G2Affine, GroupDecodingError> {
             let affine = self.into_affine_unchecked()?;
-
             if !affine.is_on_curve() {
                 Err(GroupDecodingError::NotOnCurve)
             } else if !affine.is_in_correct_subgroup_assuming_on_curve() {
@@ -1596,7 +1604,6 @@ pub mod g2 {
         }
         fn from_affine(affine: G2Affine) -> Self {
             let mut res = Self::empty();
-
             if affine.is_zero() {
                 // Set the second-most significant bit to indicate this point
                 // is at infinity.
@@ -1615,7 +1622,7 @@ pub mod g2 {
     }
 
     #[derive(Copy, Clone)]
-    pub struct G2Compressed([u8; 96]);
+    pub struct G2Compressed(pub [u8; 96]);
 
     impl AsRef<[u8]> for G2Compressed {
         fn as_ref(&self) -> &[u8] {
@@ -1739,7 +1746,7 @@ pub mod g2 {
     }
 
     impl G2Affine {
-        fn get_generator() -> Self {
+        pub fn get_generator() -> Self {
             G2Affine {
                 x: Fq2 {
                     c0: super::super::fq::G2_GENERATOR_X_C0,

@@ -39,6 +39,13 @@ impl PartialOrd for Fq2 {
 }
 
 impl Fq2 {
+    pub fn stream(&mut self, d: &mut [u64], offset: usize, out: bool) -> usize { 
+        let mut e = offset;
+        e += self.c0.stream(d, e, out); 
+        e += self.c1.stream(d, e, out);
+        e - offset
+    }
+    
     /// Multiply this element by the cubic and quadratic nonresidue 1 + u.
     pub fn mul_by_nonresidue(&mut self) {
         let t0 = self.c0;

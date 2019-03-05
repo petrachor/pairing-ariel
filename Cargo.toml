@@ -22,3 +22,7 @@ unstable-features = ["expose-arith"]
 expose-arith = []
 u128-support = []
 default = []
+
+[lib]
+name = "pairing"
+crate-type = ["staticlib"]
